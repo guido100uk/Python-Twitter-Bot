@@ -1,0 +1,6 @@
+# ---------------------------------------------------------------------------
+# Add this to your Home Assistant configuration.yaml (or merge into an
+# existing homeassistant: block), then restart Home Assistant.
+# ---------------------------------------------------------------------------
+homeassistant:
+  packages: !include_dir_named packages

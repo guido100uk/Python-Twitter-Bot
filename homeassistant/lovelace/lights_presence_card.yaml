@@ -1,0 +1,16 @@
+title: Lights & presence
+type: entities
+show_header_toggle: false
+entities:
+  - entity: input_boolean.light_schedule_enabled
+  - entity: input_datetime.light_schedule_morning_on
+  - entity: input_datetime.light_schedule_evening_on
+  - entity: input_datetime.light_schedule_night_off
+  - type: divider
+  - entity: input_boolean.presence_simulator_enabled
+  - entity: input_boolean.presence_simulator_only_when_away
+  - entity: input_number.presence_sim_on_min
+  - entity: input_number.presence_sim_on_max
+  - entity: input_number.presence_sim_off_min
+  - entity: input_number.presence_sim_off_max
+  - entity: light.presence_simulator_lights
