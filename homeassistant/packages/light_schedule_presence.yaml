@@ -1,0 +1,292 @@
+# Light Schedule + Presence Simulator
+# Drop into config/packages/ and enable packages in configuration.yaml.
+#
+# BEFORE USE: replace the light.* entity IDs under light.presence_simulator_lights
+# (and the morning schedule light list) with your real Home Assistant entities.
+
+# ---------------------------------------------------------------------------
+# Helpers — Settings → Devices & Services → Helpers (after reload)
+# ---------------------------------------------------------------------------
+input_boolean:
+  light_schedule_enabled:
+    name: Light schedule
+    icon: mdi:calendar-clock
+  presence_simulator_enabled:
+    name: Presence simulator
+    icon: mdi:home-account
+  presence_simulator_only_when_away:
+    name: Presence simulator only when away
+    icon: mdi:account-off
+    initial: true
+
+input_datetime:
+  light_schedule_morning_on:
+    name: Morning lights on
+    has_date: false
+    has_time: true
+    icon: mdi:weather-sunset-up
+  light_schedule_evening_on:
+    name: Evening lights on
+    has_date: false
+    has_time: true
+    icon: mdi:weather-sunset-down
+  light_schedule_night_off:
+    name: Night lights off
+    has_date: false
+    has_time: true
+    icon: mdi:weather-night
+
+input_number:
+  presence_sim_on_min:
+    name: Presence sim min on (minutes)
+    min: 2
+    max: 60
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:timer-outline
+    initial: 5
+  presence_sim_on_max:
+    name: Presence sim max on (minutes)
+    min: 5
+    max: 120
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:timer
+    initial: 35
+  presence_sim_off_min:
+    name: Presence sim min off (minutes)
+    min: 5
+    max: 90
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:timer-off-outline
+    initial: 10
+  presence_sim_off_max:
+    name: Presence sim max off (minutes)
+    min: 10
+    max: 180
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:timer-off
+    initial: 55
+
+# ---------------------------------------------------------------------------
+# Light group used by the presence simulator (and evening/night schedule)
+# Edit these entity IDs to match rooms that should look lived-in.
+# ---------------------------------------------------------------------------
+light:
+  - platform: group
+    name: Presence simulator lights
+    unique_id: presence_simulator_lights
+    entities:
+      - light.living_room
+      - light.kitchen
+      - light.hallway
+      - light.bedroom
+
+# ---------------------------------------------------------------------------
+# Scripts
+# ---------------------------------------------------------------------------
+script:
+  presence_simulator_loop:
+    alias: Presence simulator loop
+    mode: restart
+    icon: mdi:lightbulb-group
+    sequence:
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "on"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.presence_simulator_only_when_away
+            state: "off"
+          - condition: state
+            entity_id: zone.home
+            state: "0"
+      - variables:
+          candidates: >-
+            {{ expand('light.presence_simulator_lights')
+               | map(attribute='entity_id')
+               | reject('eq', 'light.presence_simulator_lights')
+               | list }}
+          on_lo: "{{ states('input_number.presence_sim_on_min') | int(5) }}"
+          on_hi: "{{ states('input_number.presence_sim_on_max') | int(35) }}"
+          off_lo: "{{ states('input_number.presence_sim_off_min') | int(10) }}"
+          off_hi: "{{ states('input_number.presence_sim_off_max') | int(55) }}"
+      - condition: template
+        value_template: "{{ candidates | count > 0 }}"
+      - variables:
+          target_light: "{{ candidates | random }}"
+          on_minutes: >-
+            {{ range([on_lo | int, on_hi | int] | min,
+                     ([on_lo | int, on_hi | int] | max) + 1) | list | random }}
+          off_minutes: >-
+            {{ range([off_lo | int, off_hi | int] | min,
+                     ([off_lo | int, off_hi | int] | max) + 1) | list | random }}
+      - service: light.turn_on
+        target:
+          entity_id: "{{ target_light }}"
+        data:
+          brightness_pct: "{{ [40, 55, 70, 85, 100] | random }}"
+      - delay:
+          minutes: "{{ on_minutes | int }}"
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "on"
+      - service: light.turn_off
+        target:
+          entity_id: "{{ target_light }}"
+      - delay:
+          minutes: "{{ off_minutes | int }}"
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "on"
+      - service: script.turn_on
+        target:
+          entity_id: script.presence_simulator_loop
+
+  presence_simulator_stop:
+    alias: Presence simulator stop
+    mode: single
+    icon: mdi:stop-circle-outline
+    sequence:
+      - service: script.turn_off
+        target:
+          entity_id: script.presence_simulator_loop
+      - service: light.turn_off
+        target:
+          entity_id: light.presence_simulator_lights
+
+# ---------------------------------------------------------------------------
+# Automations
+# ---------------------------------------------------------------------------
+automation:
+  - id: light_schedule_morning_on
+    alias: "Light schedule: morning on"
+    description: Turns on living areas in the morning when the schedule is enabled.
+    mode: single
+    trigger:
+      - platform: time
+        at: input_datetime.light_schedule_morning_on
+    condition:
+      - condition: state
+        entity_id: input_boolean.light_schedule_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "off"
+    action:
+      - service: light.turn_on
+        target:
+          entity_id:
+            - light.kitchen
+            - light.hallway
+        data:
+          brightness_pct: 70
+          transition: 5
+
+  - id: light_schedule_evening_on
+    alias: "Light schedule: evening on"
+    description: Turns on evening lights at the configured time when the schedule is enabled.
+    mode: single
+    trigger:
+      - platform: time
+        at: input_datetime.light_schedule_evening_on
+    condition:
+      - condition: state
+        entity_id: input_boolean.light_schedule_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "off"
+    action:
+      - service: light.turn_on
+        target:
+          entity_id: light.presence_simulator_lights
+        data:
+          brightness_pct: 55
+          transition: 10
+
+  - id: light_schedule_night_off
+    alias: "Light schedule: night off"
+    description: Turns off scheduled lights at bedtime when the schedule is enabled.
+    mode: single
+    trigger:
+      - platform: time
+        at: input_datetime.light_schedule_night_off
+    condition:
+      - condition: state
+        entity_id: input_boolean.light_schedule_enabled
+        state: "on"
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "off"
+    action:
+      - service: light.turn_off
+        target:
+          entity_id: light.presence_simulator_lights
+        data:
+          transition: 15
+
+  - id: presence_simulator_start
+    alias: "Presence simulator: start loop"
+    description: Starts the random on/off loop when the simulator is enabled (and away, if required).
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.presence_simulator_enabled
+        to: "on"
+      - platform: state
+        entity_id: zone.home
+        to: "0"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_boolean.presence_simulator_enabled
+        state: "on"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.presence_simulator_only_when_away
+            state: "off"
+          - condition: state
+            entity_id: zone.home
+            state: "0"
+    action:
+      - service: script.turn_on
+        target:
+          entity_id: script.presence_simulator_loop
+
+  - id: presence_simulator_stop
+    alias: "Presence simulator: stop loop"
+    description: Stops the loop and clears lights when disabled or when someone returns home.
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_boolean.presence_simulator_enabled
+        to: "off"
+      - platform: numeric_state
+        entity_id: zone.home
+        above: 0
+    condition:
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.presence_simulator_enabled
+            state: "off"
+          - condition: and
+            conditions:
+              - condition: state
+                entity_id: input_boolean.presence_simulator_only_when_away
+                state: "on"
+              - condition: numeric_state
+                entity_id: zone.home
+                above: 0
+    action:
+      - service: script.presence_simulator_stop
